@@ -1,7 +1,7 @@
 package pl.szajsjem;
 
-import com.beednn.Layer;
 import pl.szajsjem.elements.Node;
+import pl.szajsjem.snnl.SnnlMetadata;
 
 import javax.swing.*;
 import java.awt.*;
@@ -68,7 +68,7 @@ public class PropertiesPanel extends JPanel {
         }
 
         // Parse the usage string
-        String usage = Layer.getLayerUsage(type);
+        String usage = SnnlMetadata.getLayerUsage(type);
         String[] lines = usage.split("\n");
         if (lines.length > 3) {
             contentPanel.add(new JLabel("Invalid layer usage format"));
@@ -102,16 +102,16 @@ public class PropertiesPanel extends JPanel {
                     JComboBox<String> combo;
 
                     if (desc.contains("Activation")) {
-                        combo = new JComboBox<>(Layer.getAvailableActivations());
+                        combo = new JComboBox<>(SnnlMetadata.getAvailableActivations());
                     } else if (desc.contains("Reduction")) {
-                        combo = new JComboBox<>(Layer.getAvailableReductions());
+                        combo = new JComboBox<>(SnnlMetadata.getAvailableReductions());
                     } else if (desc.contains("Initializer")) {
-                        combo = new JComboBox<>(Layer.getAvailableInitializers());
+                        combo = new JComboBox<>(SnnlMetadata.getAvailableInitializers());
                     } else {
                         combo = null;
                     }
                     if (combo != null) {
-                        String value = getCommonStringParam(selectedNodes, i);
+                        String value = normalizePropertyValue(desc, getCommonStringParam(selectedNodes, i));
                         if (!value.equals("...")) {
                             combo.setSelectedItem(value);
                         }
@@ -258,11 +258,14 @@ public class PropertiesPanel extends JPanel {
             node.setStringParams(stringParams.clone());
             node.setFloatParams(floatParams.clone());
 
-            // Recreate the layer in BeeDNN
+            // Validate the layer against the SNNL factory
             try {
-                Layer layer = new Layer(node.getType(), floatParams, String.join(";", stringParams));
-                // TODO: Update the node's native layer pointer if needed
-            } catch (Exception e) {
+                String normalizedType = SnnlMetadata.normalizeLayerType(node.getType());
+                if (!SnnlMetadata.supportsLayerType(normalizedType)) {
+                    throw new IllegalStateException("Unknown SNNL layer type: " + node.getType());
+                }
+                SnnlMetadata.resolveStringArgs(normalizedType, floatParams, stringParams);
+            } catch (RuntimeException e) {
                 JOptionPane.showMessageDialog(this,
                         "Error creating layer: " + e.getMessage(),
                         "Layer Creation Error",
@@ -283,5 +286,23 @@ public class PropertiesPanel extends JPanel {
         public void changedUpdate(javax.swing.event.DocumentEvent e) {
             updateTimer.restart();
         }
+    }
+
+    private String normalizePropertyValue(String description, String value) {
+        if (value == null || value.isBlank() || value.equals("...")) {
+            return value;
+        }
+
+        String lower = description.toLowerCase();
+        if (lower.contains("activation")) {
+            return SnnlMetadata.normalizeActivation(value);
+        }
+        if (lower.contains("initializer")) {
+            return SnnlMetadata.normalizeInitializer(value);
+        }
+        if (lower.contains("reduction")) {
+            return SnnlMetadata.normalizeReduction(value);
+        }
+        return value;
     }
 }

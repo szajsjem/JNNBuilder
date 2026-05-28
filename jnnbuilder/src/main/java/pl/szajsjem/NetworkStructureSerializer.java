@@ -1,14 +1,19 @@
 package pl.szajsjem;
 
-import com.beednn.Layer;
-import com.beednn.Net;
+import com.snnl.Net;
 import pl.szajsjem.elements.Node;
+import pl.szajsjem.snnl.SnnlMetadata;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 public class NetworkStructureSerializer {
     private final List<Node> nodes;
     private final Map<Node, CompositeLayer> processedNodes = new HashMap<>();
+    private final Map<String, String> leafSerializationCache = new HashMap<>();
 
     public NetworkStructureSerializer(List<Node> nodes) {
         this.nodes = new ArrayList<>(nodes);
@@ -22,81 +27,90 @@ public class NetworkStructureSerializer {
             throw new IllegalStateException("Invalid network structure: " + String.join(", ", errors));
         }
 
-        // Create new Net instance
-        Net network = new Net();
-
         // Get the list of layers in correct order using serializeNetwork
         List<CompositeLayer> layers = serializeNetwork(connectionManager);
+        if (layers.isEmpty()) {
+            throw new IllegalStateException("Network must contain at least one layer");
+        }
 
-        // Helper function to recursively add layers and get their layer references
-        addLayersToNet(network, layers);
-
-        return network;
+        return loadSerializedNetwork(layers);
     }
 
-    // Returns layer pointer for referencing in parent layers
-    private String addLayersToNet(Net network, List<CompositeLayer> layers) {
-        StringBuilder layerPtrs = new StringBuilder();
-
-        for (CompositeLayer compositeLayer : layers) {
-            // If this is a parallel layer, handle specially
-            if (compositeLayer.type.equals("parallel")) {
-                // Process all child paths and collect their layer pointers
-                List<String> childPtrs = new ArrayList<>();
-                for (CompositeLayer child : compositeLayer.children) {
-                    String ptr = addLayersToNet(network, Collections.singletonList(child));
-                    if (ptr != null && !ptr.isEmpty()) {
-                        childPtrs.add(ptr);
-                    }
+    private Net loadSerializedNetwork(List<CompositeLayer> layers) {
+        RuntimeException lastFailure = null;
+        for (int[] inputShape : candidateInputShapes(layers)) {
+            try {
+                Net network = tryLoadNetwork(layers, inputShape);
+                if (network != null) {
+                    return network;
                 }
-
-                // Create parallel layer with reduction type and collected layer pointers
-                String reductionType = compositeLayer.reduction != null ? compositeLayer.reduction : "sum";
-                Layer parallelLayer = new Layer("LayerParallel", new float[0],
-                        reductionType + "," + String.join(",", childPtrs));
-                network.addLayer(parallelLayer);
-
-                if (layerPtrs.length() > 0) layerPtrs.append(",");
-                layerPtrs.append(parallelLayer.getNativePtr());
-            } else {
-                // Normal layer - create and add it
-                Layer layer = createLayer(compositeLayer);
-                if (layer != null) {
-                    network.addLayer(layer);
-                    if (layerPtrs.length() > 0) layerPtrs.append(",");
-                    layerPtrs.append(layer.getNativePtr());
-                }
-
-                // Process children recursively
-                if (!compositeLayer.children.isEmpty()) {
-                    String childPtrs = addLayersToNet(network, compositeLayer.children);
-                    if (childPtrs != null && !childPtrs.isEmpty()) {
-                        if (layerPtrs.length() > 0) layerPtrs.append(",");
-                        layerPtrs.append(childPtrs);
-                    }
-                }
+            } catch (RuntimeException exception) {
+                lastFailure = exception;
             }
         }
 
-        return layerPtrs.toString();
+        if (lastFailure != null) {
+            throw lastFailure;
+        }
+        throw new IllegalStateException("Could not construct an SNNL model from the current graph");
     }
 
-    private Layer createLayer(CompositeLayer compositeLayer) {
-        if (compositeLayer.sourceNode == null) {
-            return null;  // Skip empty composite layers
-        }
-
-        // Get parameters from source node
-        String type = compositeLayer.sourceNode.getType();
-        float[] floatParams = compositeLayer.sourceNode.getFloatParams();
-        String[] stringParams = compositeLayer.sourceNode.getStringParams();
-
-        // Create layer using parameters
+    private Net tryLoadNetwork(List<CompositeLayer> layers, int[] inputShape) {
         try {
-            return new Layer(type, floatParams, String.join(";", stringParams));
-        } catch (Exception e) {
-            throw new IllegalStateException("Error creating layer of type " + type + ": " + e.getMessage());
+            Path provisionalModel = writeModelFile(layers, inputShape, new float[0]);
+            Net network = new Net();
+            if (network.load(provisionalModel.toString())) {
+                return network;
+            }
+
+            float[] params = network.getParams();
+            if (params.length == 0) {
+                network.close();
+                return null;
+            }
+
+            Path populatedModel = writeModelFile(layers, inputShape, params);
+            if (network.load(populatedModel.toString())) {
+                return network;
+            }
+
+            network.close();
+            return null;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to prepare temporary SNNL model: " + exception.getMessage(), exception);
         }
+    }
+
+    private Path writeModelFile(List<CompositeLayer> layers, int[] inputShape, float[] params) throws IOException {
+        Path file = Files.createTempFile("jnnbuilder-snnl-", ".snnl");
+        file.toFile().deleteOnExit();
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("SNNL_SERIALIZED\n");
+        builder.append("1\n");
+        builder.append("0\n");
+        appendShape(builder, inputShape);
+        appendShape(builder, inputShape);
+        builder.append(layers.size()).append('\n');
+        for (CompositeLayer layer : layers) {
+            builder.append(serializeCompositeLayer(layer));
+        }
+        builder.append(params.length).append('\n');
+        for (float param : params) {
+            builder.append(param).append(' ');
+        }
+        builder.append('\n');
+
+        Files.writeString(file, builder.toString(), StandardCharsets.UTF_8);
+        return file;
+    }
+
+    private void appendShape(StringBuilder builder, int[] shape) {
+        builder.append(shape.length);
+        for (int dim : shape) {
+            builder.append(' ').append(dim);
+        }
+        builder.append('\n');
     }
 
     public List<CompositeLayer> serializeNetwork(ConnectionManager cm) {
@@ -223,6 +237,229 @@ public class NetworkStructureSerializer {
         }
 
         return current;
+    }
+
+    private String serializeCompositeLayer(CompositeLayer compositeLayer) {
+        if ("parallel".equals(compositeLayer.type)) {
+            List<String> childSerializations = new ArrayList<>();
+            for (CompositeLayer child : compositeLayer.children) {
+                childSerializations.add(serializeCompositeLayer(child));
+            }
+            return serializeParallelLayer(compositeLayer.reduction, childSerializations);
+        }
+
+        if (compositeLayer.sourceNode == null) {
+            List<String> childSerializations = new ArrayList<>();
+            for (CompositeLayer child : compositeLayer.children) {
+                childSerializations.add(serializeCompositeLayer(child));
+            }
+            return serializeSequentialLayer(childSerializations);
+        }
+
+        List<String> serializations = new ArrayList<>();
+        serializations.add(serializeLeafLayer(compositeLayer.sourceNode));
+        for (CompositeLayer child : compositeLayer.children) {
+            serializations.add(serializeCompositeLayer(child));
+        }
+        return serializeSequentialLayer(serializations);
+    }
+
+    private String serializeSequentialLayer(List<String> childSerializations) {
+        if (childSerializations.isEmpty()) {
+            throw new IllegalStateException("Sequential container cannot be empty");
+        }
+        if (childSerializations.size() == 1) {
+            return childSerializations.getFirst();
+        }
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("Sequential\n");
+        builder.append(childSerializations.size()).append('\n');
+        for (String child : childSerializations) {
+            builder.append(child);
+        }
+        return builder.toString();
+    }
+
+    private String serializeParallelLayer(String reduction, List<String> childSerializations) {
+        if (childSerializations.isEmpty()) {
+            throw new IllegalStateException("Parallel container cannot be empty");
+        }
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("Parallel\n");
+        builder.append(normalizeReduction(reduction)).append('\n');
+        builder.append("mt:0\n");
+        builder.append(childSerializations.size()).append('\n');
+        for (String child : childSerializations) {
+            builder.append(child);
+        }
+        return builder.toString();
+    }
+
+    private String serializeLeafLayer(Node node) {
+        String normalizedType = SnnlMetadata.normalizeLayerType(node.getType());
+        float[] floatParams = node.getFloatParams();
+        String stringArgs = SnnlMetadata.resolveStringArgs(normalizedType, floatParams, node.getStringParams());
+        String cacheKey = normalizedType + "|" + Arrays.toString(floatParams) + "|" + stringArgs;
+        String cached = leafSerializationCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+
+        try (Net layerNet = new Net()) {
+            if (!layerNet.addLayer(normalizedType, floatParams, stringArgs)) {
+                throw new IllegalStateException("SNNL rejected layer '" + normalizedType + "'");
+            }
+
+            Path modelFile = Files.createTempFile("jnnbuilder-snnl-layer-", ".snnl");
+            modelFile.toFile().deleteOnExit();
+            if (!layerNet.save(modelFile.toString())) {
+                for (int[] shape : candidateInputShapes(node)) {
+                    if (layerNet.init(shape) && layerNet.save(modelFile.toString())) {
+                        String serialized = extractLayerSerialization(modelFile);
+                        leafSerializationCache.put(cacheKey, serialized);
+                        return serialized;
+                    }
+                }
+                throw new IllegalStateException("Could not serialize SNNL layer '" + normalizedType + "'");
+            }
+
+            String serialized = extractLayerSerialization(modelFile);
+            leafSerializationCache.put(cacheKey, serialized);
+            return serialized;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Error serializing SNNL layer '" + normalizedType + "': " + exception.getMessage(), exception);
+        }
+    }
+
+    private String extractLayerSerialization(Path modelFile) throws IOException {
+        List<String> lines = Files.readAllLines(modelFile, StandardCharsets.UTF_8);
+        if (lines.size() < 8) {
+            throw new IOException("Serialized SNNL model is missing layer content");
+        }
+
+        StringBuilder builder = new StringBuilder();
+        for (int i = 6; i < lines.size() - 2; i++) {
+            builder.append(lines.get(i)).append('\n');
+        }
+        return builder.toString();
+    }
+
+    private List<int[]> candidateInputShapes(List<CompositeLayer> layers) {
+        List<int[]> candidates = new ArrayList<>();
+        Node firstNode = firstSourceNode(layers);
+        if (firstNode != null) {
+            addCandidateShape(candidates, guessInputShape(firstNode));
+        }
+        addCandidateShape(candidates, new int[]{1, 1});
+        addCandidateShape(candidates, new int[]{1, 1, 1});
+        addCandidateShape(candidates, new int[]{1, 1, 1, 1});
+        return candidates;
+    }
+
+    private List<int[]> candidateInputShapes(Node node) {
+        List<int[]> candidates = new ArrayList<>();
+        addCandidateShape(candidates, guessInputShape(node));
+        addCandidateShape(candidates, new int[]{1, 1});
+        addCandidateShape(candidates, new int[]{1, 1, 1});
+        addCandidateShape(candidates, new int[]{1, 1, 1, 1});
+        return candidates;
+    }
+
+    private void addCandidateShape(List<int[]> candidates, int[] candidate) {
+        if (candidate == null || candidate.length == 0) {
+            return;
+        }
+        for (int[] existing : candidates) {
+            if (Arrays.equals(existing, candidate)) {
+                return;
+            }
+        }
+        candidates.add(candidate);
+    }
+
+    private Node firstSourceNode(List<CompositeLayer> layers) {
+        for (CompositeLayer layer : layers) {
+            Node node = firstSourceNode(layer);
+            if (node != null) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    private Node firstSourceNode(CompositeLayer layer) {
+        if (layer.sourceNode != null) {
+            return layer.sourceNode;
+        }
+        for (CompositeLayer child : layer.children) {
+            Node node = firstSourceNode(child);
+            if (node != null) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    private int[] guessInputShape(Node node) {
+        String[] usageLines = SnnlMetadata.getLayerUsage(node.getType()).split("\n", -1);
+        String[] numericDescriptions = usageLines.length > 2 ? usageLines[2].split(";") : new String[0];
+        float[] floatParams = node.getFloatParams();
+
+        if (numericDescriptions.length >= 3 &&
+                containsToken(numericDescriptions[0], "rows") &&
+                containsToken(numericDescriptions[1], "cols") &&
+                containsToken(numericDescriptions[2], "channels")) {
+            return positiveShape(
+                    1,
+                    floatParam(floatParams, 0, 1),
+                    floatParam(floatParams, 1, 1),
+                    floatParam(floatParams, 2, 1)
+            );
+        }
+
+        if (numericDescriptions.length >= 1 && containsToken(numericDescriptions[0], "inputsize")) {
+            return positiveShape(1, floatParam(floatParams, 0, 1));
+        }
+
+        if (numericDescriptions.length >= 1 && containsToken(numericDescriptions[0], "shape")) {
+            int[] dynamicShape = new int[Math.max(1, floatParams.length)];
+            for (int i = 0; i < dynamicShape.length; i++) {
+                dynamicShape[i] = floatParam(floatParams, i, 1);
+            }
+            return positiveShape(dynamicShape);
+        }
+
+        if (floatParams.length > 0) {
+            return positiveShape(1, floatParam(floatParams, 0, 1));
+        }
+
+        return new int[]{1, 1};
+    }
+
+    private int[] positiveShape(int... dims) {
+        int[] shape = dims.clone();
+        for (int i = 0; i < shape.length; i++) {
+            shape[i] = Math.max(1, shape[i]);
+        }
+        return shape;
+    }
+
+    private int floatParam(float[] params, int index, int fallback) {
+        if (index >= params.length) {
+            return fallback;
+        }
+        return Math.max(1, Math.round(params[index]));
+    }
+
+    private boolean containsToken(String value, String token) {
+        return value.toLowerCase(Locale.ROOT).replaceAll("\\s+", "").contains(token);
+    }
+
+    private String normalizeReduction(String reduction) {
+        String normalized = SnnlMetadata.normalizeReduction(reduction == null ? "Sum" : reduction);
+        return normalized == null || normalized.isBlank() ? "Sum" : normalized;
     }
 
     private Map<Node, List<Node>> findConvergencePoints(Node start, List<Node> nextNodes) {

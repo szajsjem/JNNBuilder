@@ -1,6 +1,6 @@
 package pl.szajsjem;
 
-import com.beednn.NetTrain;
+import pl.szajsjem.snnl.SnnlTrainer;
 
 import javax.swing.*;
 import java.awt.*;
@@ -8,11 +8,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class TrainingSettingsDialog extends JDialog {
-    private final NetTrain netTrain;
+    private final SnnlTrainer netTrain;
     private final Map<String, JComponent> settingsComponents = new HashMap<>();
     private boolean approved = false;
 
-    public TrainingSettingsDialog(JFrame parent, NetTrain netTrain) {
+    public TrainingSettingsDialog(JFrame parent, SnnlTrainer netTrain) {
         super(parent, "Training Settings", true);
         this.netTrain = netTrain;
 
@@ -71,7 +71,7 @@ public class TrainingSettingsDialog extends JDialog {
         addSettingRow(panel, "Batch Size:", batchSizeSpinner);
 
         // Loss Function
-        JComboBox<String> lossCombo = new JComboBox<>(NetTrain.getAvailableLosses());
+        JComboBox<String> lossCombo = new JComboBox<>(SnnlTrainer.getAvailableLosses());
         settingsComponents.put("loss", lossCombo);
         addSettingRow(panel, "Loss Function:", lossCombo);
 
@@ -82,7 +82,7 @@ public class TrainingSettingsDialog extends JDialog {
         panel.add(createSectionHeader("Optimizer Settings"));
 
         // Optimizer
-        String[] optimizers = NetTrain.getAvailableOptimizers();
+        String[] optimizers = SnnlTrainer.getAvailableOptimizers();
         JComboBox<String> optimizerCombo = new JComboBox<>(optimizers);
         settingsComponents.put("optimizer", optimizerCombo);
         addSettingRow(panel, "Optimizer:", optimizerCombo);
@@ -109,7 +109,7 @@ public class TrainingSettingsDialog extends JDialog {
         panel.add(createSectionHeader("Regularization"));
 
         // Regularizer
-        String[] regularizers = NetTrain.getAvailableRegularizers();
+        String[] regularizers = SnnlTrainer.getAvailableRegularizers();
         JComboBox<String> regularizerCombo = new JComboBox<>(regularizers);
         settingsComponents.put("regularizer", regularizerCombo);
         addSettingRow(panel, "Regularizer:", regularizerCombo);

@@ -12,23 +12,22 @@ public class SpecialNode extends Node {
 
     public SpecialNode(String label) {
         super(label);
-        if (label.contains("RNN")) {
-            specialPoints.add(new ConnectionPoint(this, "OUT t-1", false, width / 4, height));
-            specialPoints.add(new ConnectionPoint(this, "IN mirror", false, (2 * width) / 4, height));
-            specialPoints.add(new ConnectionPoint(this, "OUT pass", true, (3 * width) / 4, height));
-        } else {
-            switch (label) {
-                case ("LayerStacked"):
-                case ("LayerRepetetive"):
-                    specialPoints.add(new ConnectionPoint(this, "IN mirror", false, width / 3, 0));
-                    specialPoints.add(new ConnectionPoint(this, "OUT pass", true, (2 * width) / 3, 0));
-                    break;
-                case ("LayerRouter"):
-                    specialPoints.add(new ConnectionPoint(this, "IN mirror", false, width / 4, 0));
-                    specialPoints.add(new ConnectionPoint(this, "experts weight", true, (2 * width) / 4, 0));
-                    specialPoints.add(new ConnectionPoint(this, "experts", true, (3 * width) / 4, 0));
-                    break;
-            }
+        switch (label) {
+            case "LayerPipe":
+            case "LayerRNNPipe":
+            case "Stacked":
+            case "LayerStacked":
+            case "Repetitive":
+            case "LayerRepetetive":
+                specialPoints.add(new ConnectionPoint(this, "IN mirror", false, width / 3, 0));
+                specialPoints.add(new ConnectionPoint(this, "OUT pass", true, (2 * width) / 3, 0));
+                break;
+            case "Router":
+            case "LayerRouter":
+                specialPoints.add(new ConnectionPoint(this, "IN mirror", false, width / 4, 0));
+                specialPoints.add(new ConnectionPoint(this, "experts weight", true, (2 * width) / 4, 0));
+                specialPoints.add(new ConnectionPoint(this, "experts", true, (3 * width) / 4, 0));
+                break;
         }
     }
 

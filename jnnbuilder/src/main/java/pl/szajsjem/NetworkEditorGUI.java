@@ -1,11 +1,11 @@
 package pl.szajsjem;
 
-import com.beednn.Layer;
-import com.beednn.Net;
-import com.beednn.NetTrain;
+import com.snnl.Net;
 import pl.szajsjem.data.CSVLoaderDialog;
 import pl.szajsjem.data.DataManager;
 import pl.szajsjem.elements.Node;
+import pl.szajsjem.snnl.SnnlMetadata;
+import pl.szajsjem.snnl.SnnlTrainer;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileSystemView;
@@ -15,7 +15,8 @@ import java.awt.event.*;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Point2D;
-import java.io.*;
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,7 +33,7 @@ public class NetworkEditorGUI extends JFrame {
     private CSVLoaderDialog.LoadedData currentData;
     private JFrame dataFrame;
     JMenu dataMenu = new JMenu("Data");
-    private NetTrain netTrain;
+    private SnnlTrainer netTrain;
     private Net trainedNetwork = null;
     private File currentFile = null;
     private boolean hasUnsavedChanges = false;
@@ -45,7 +46,7 @@ public class NetworkEditorGUI extends JFrame {
         // Main layout
         setLayout(new BorderLayout());
 
-        netTrain = new NetTrain();
+        netTrain = new SnnlTrainer();
 
         // Create components
         canvas = new CanvasPanel();
@@ -398,7 +399,7 @@ public class NetworkEditorGUI extends JFrame {
         panOffset.y = 0;
 
         // Clear training settings
-        netTrain = new NetTrain();
+        netTrain = new SnnlTrainer();
 
         // Clear any loaded data
         currentData = null;
@@ -629,7 +630,7 @@ public class NetworkEditorGUI extends JFrame {
         }
     }
 
-    private void exportBeeDNNModel() {
+    private void exportSnnlModel() {
         // Check if there are any nodes
         if (trainedNetwork == null) {
             JOptionPane.showMessageDialog(this,
@@ -643,11 +644,11 @@ public class NetworkEditorGUI extends JFrame {
         JFileChooser fileChooser = new JFileChooser();
         fileChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
             public boolean accept(File f) {
-                return f.isDirectory() || f.getName().toLowerCase().endsWith(".beednn");
+                return f.isDirectory() || f.getName().toLowerCase().endsWith(".snnl");
             }
 
             public String getDescription() {
-                return "BeeDNN Model Files (*.beednn)";
+                return "SNNL Model Files (*.snnl)";
             }
         });
 
@@ -656,23 +657,15 @@ public class NetworkEditorGUI extends JFrame {
         }
 
         File file = fileChooser.getSelectedFile();
-        if (!file.getName().toLowerCase().endsWith(".beednn")) {
-            file = new File(file.getPath() + ".beednn");
+        if (!file.getName().toLowerCase().endsWith(".snnl")) {
+            file = new File(file.getPath() + ".snnl");
         }
 
         try {
-            // Get the Net instance and save its string representation
-
-            // TODO: Add layers to net in correct order
-            String modelData = "not implemented";//todo trainedNetwork.saveAsLayer();
-
-            // Write to file
-            try (FileWriter writer = new FileWriter(file)) {
-                writer.write(modelData);
+            if (!trainedNetwork.save(file.getPath())) {
+                throw new IOException("SNNL save returned failure");
             }
-
             statusBar.setStatus("Model exported to " + file.getName());
-
         } catch (IOException e) {
             JOptionPane.showMessageDialog(this,
                     "Error exporting model: " + e.getMessage(),
@@ -687,78 +680,6 @@ public class NetworkEditorGUI extends JFrame {
                 "Export as executable JAR will be implemented in a future update.",
                 "Not Implemented",
                 JOptionPane.INFORMATION_MESSAGE);
-    }
-
-    private void importBeeDNNModel() {
-        // Check for unsaved changes first
-        if (hasUnsavedChanges) {
-            int choice = JOptionPane.showConfirmDialog(this,
-                    "There are unsaved changes. Would you like to save before importing?",
-                    "Unsaved Changes",
-                    JOptionPane.YES_NO_CANCEL_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-
-            if (choice == JOptionPane.CANCEL_OPTION) {
-                return;
-            }
-
-            if (choice == JOptionPane.YES_OPTION) {
-                saveNetwork(false);
-                if (hasUnsavedChanges) {  // Save was cancelled
-                    return;
-                }
-            }
-        }
-
-        // Show file chooser
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
-            public boolean accept(File f) {
-                return f.isDirectory() || f.getName().toLowerCase().endsWith(".beednn");
-            }
-
-            public String getDescription() {
-                return "BeeDNN Model Files (*.beednn)";
-            }
-        });
-
-        if (fileChooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-
-        try {
-            // Read the model data
-            String modelData = "";
-            try (BufferedReader reader = new BufferedReader(new FileReader(fileChooser.getSelectedFile()))) {
-                StringBuilder content = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    content.append(line).append("\n");
-                }
-                modelData = content.toString();
-            }
-
-            // Create new layer using the model data
-            com.beednn.Layer layer = com.beednn.Layer.fromString(modelData);
-            if (layer != null) {
-                // Create a new node
-                Node node = new Node("ImportedModel");
-                node.x = 200;
-                node.y = 100;
-                nodeManager.getAllNodes().add(node);
-
-                // Update view
-                setHasUnsavedChanges(true);
-                canvas.repaint();
-                statusBar.setStatus("Model imported successfully");
-            }
-
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                    "Error importing model: " + e.getMessage(),
-                    "Import Error",
-                    JOptionPane.ERROR_MESSAGE);
-        }
     }
 
     private void startTraining() {
@@ -836,8 +757,8 @@ public class NetworkEditorGUI extends JFrame {
 
         JMenu exportMenu = new JMenu("Export");
 
-        JMenuItem exportModelItem = new JMenuItem("BeeDNN Model...");
-        exportModelItem.addActionListener(e -> exportBeeDNNModel());
+        JMenuItem exportModelItem = new JMenuItem("SNNL Model...");
+        exportModelItem.addActionListener(e -> exportSnnlModel());
         exportMenu.add(exportModelItem);
 
         JMenuItem exportJarItem = new JMenuItem("Trained Network JAR...");
@@ -845,15 +766,6 @@ public class NetworkEditorGUI extends JFrame {
         exportMenu.add(exportJarItem);
 
         fileMenu.add(exportMenu);
-
-        // Import submenu
-        JMenu importMenu = new JMenu("Import");
-
-        JMenuItem importModelItem = new JMenuItem("BeeDNN Model...");
-        importModelItem.addActionListener(e -> importBeeDNNModel());
-        importMenu.add(importModelItem);
-
-        fileMenu.add(importMenu);
 
         fileMenu.addSeparator();
 
@@ -992,7 +904,7 @@ public class NetworkEditorGUI extends JFrame {
 
         JMenuItem trainingSettingsItem = new JMenuItem("Training Settings...");
         trainingSettingsItem.addActionListener(e -> {
-            if (netTrain == null) netTrain = new NetTrain();
+            if (netTrain == null) netTrain = new SnnlTrainer();
             TrainingSettingsDialog dialog = new TrainingSettingsDialog(this, netTrain);
             dialog.showDialog();
         });
@@ -1099,7 +1011,7 @@ public class NetworkEditorGUI extends JFrame {
             layerPanel.setBorder(BorderFactory.createTitledBorder("Available Layers"));
 
             // Add layer buttons
-            for (String layerType : Layer.getAvailableLayers()) {
+            for (String layerType : SnnlMetadata.getAvailableLayers()) {
                 JButton btn = new JButton(layerType);
                 btn.setAlignmentX(Component.LEFT_ALIGNMENT);
                 btn.addActionListener(e -> {

@@ -1,8 +1,8 @@
 package pl.szajsjem;
 
-import com.beednn.Net;
-import com.beednn.NetTrain;
+import com.snnl.Net;
 import pl.szajsjem.data.CSVLoaderDialog;
+import pl.szajsjem.snnl.SnnlTrainer;
 
 import javax.swing.*;
 import java.awt.*;
@@ -14,7 +14,7 @@ import java.util.TimerTask;
 public class TrainingDialog extends JDialog {
     private final NetworkStructureSerializer networkSerializer;
     private final CSVLoaderDialog.LoadedData trainingData;
-    private final NetTrain netTrain;
+    private final SnnlTrainer netTrain;
     private final JButton startButton;
     private final JButton trainMoreButton;
     private final JButton stopButton;
@@ -29,7 +29,7 @@ public class TrainingDialog extends JDialog {
     private Timer updateTimer;
 
     public TrainingDialog(JFrame parent, NetworkStructureSerializer serializer,
-                          CSVLoaderDialog.LoadedData data, NetTrain netTrain) {
+                          CSVLoaderDialog.LoadedData data, SnnlTrainer netTrain) {
         super(parent, "Network Training", true);
         this.networkSerializer = serializer;
         this.trainingData = data;
@@ -79,6 +79,7 @@ public class TrainingDialog extends JDialog {
             // Build network if not already built
             if (network == null) {
                 network = networkSerializer.buildNetwork();
+                network.setClassificationMode(netTrain.isClassificationMode());
                 network.init(trainingData.inputs[0].length);
             }
 
@@ -170,7 +171,7 @@ public class TrainingDialog extends JDialog {
     }
 
     private void updateGraph() {
-        // Get latest loss values from NetTrain
+        // Get the latest loss values from the active SNNL trainer
         float[] trainLoss = netTrain.getTrainLoss();
         float[] validationLoss = netTrain.getValidationLoss();
 

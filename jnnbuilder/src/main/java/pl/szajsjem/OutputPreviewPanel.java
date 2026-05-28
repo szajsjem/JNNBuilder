@@ -1,6 +1,6 @@
 package pl.szajsjem;
 
-import com.beednn.Net;
+import com.snnl.Net;
 import pl.szajsjem.data.CSVLoaderDialog;
 
 import javax.swing.*;

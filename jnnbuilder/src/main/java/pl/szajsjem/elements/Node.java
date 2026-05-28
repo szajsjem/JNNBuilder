@@ -23,10 +23,14 @@ public class Node {
     }
 
     public static boolean isSpecial(String name) {
-        if (name.contains("RNN")) return true;
-        if (name.equals("LayerStacked")) return true;
-        if (name.equals("LayerRepetetive")) return true;
-        return name.equals("LayerRouter");
+        if (name == null) return false;
+        return switch (name) {
+            case "Stacked", "LayerStacked",
+                 "Repetitive", "LayerRepetetive",
+                 "Router", "LayerRouter",
+                 "LayerPipe", "LayerRNNPipe" -> true;
+            default -> false;
+        };
     }
 
     // Add getters/setters for the new fields

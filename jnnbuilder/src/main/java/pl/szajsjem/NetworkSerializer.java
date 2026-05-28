@@ -1,11 +1,12 @@
 package pl.szajsjem;
 
-import com.beednn.NetTrain;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import pl.szajsjem.elements.ConnectionPoint;
 import pl.szajsjem.elements.Node;
 import pl.szajsjem.elements.SpecialNode;
+import pl.szajsjem.snnl.SnnlMetadata;
+import pl.szajsjem.snnl.SnnlTrainer;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
@@ -17,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 public class NetworkSerializer {
-    public static void saveToFile(String filePath, List<Node> nodes, NetTrain netTrain) throws IOException {
+    public static void saveToFile(String filePath, List<Node> nodes, SnnlTrainer netTrain) throws IOException {
         JSONObject root = new JSONObject();
 
         // Save nodes
@@ -78,7 +79,7 @@ public class NetworkSerializer {
         JSONObject root = new JSONObject(jsonStr);
 
         List<Node> nodes = loadNodes(root.getJSONArray("nodes"));
-        NetTrain netTrain = new NetTrain();
+        SnnlTrainer netTrain = new SnnlTrainer();
 
         if (root.has("trainSettings")) {
             netTrain.load(root.getString("trainSettings"));
@@ -106,7 +107,7 @@ public class NetworkSerializer {
 
             // Create appropriate node type
             Node node;
-            String type = nodeObj.getString("type");
+            String type = SnnlMetadata.normalizeLayerType(nodeObj.getString("type"));
             if (nodeObj.getBoolean("isSpecial")) {
                 node = new SpecialNode(type);
             } else {
@@ -203,9 +204,9 @@ public class NetworkSerializer {
 
     public static class NetworkData {
         public final List<Node> nodes;
-        public final NetTrain netTrain;
+        public final SnnlTrainer netTrain;
 
-        public NetworkData(List<Node> nodes, NetTrain netTrain) {
+        public NetworkData(List<Node> nodes, SnnlTrainer netTrain) {
             this.nodes = nodes;
             this.netTrain = netTrain;
         }
