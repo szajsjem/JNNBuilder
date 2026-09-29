@@ -143,28 +143,44 @@ export class NodeManager {
 
     deserialize(data) {
         const obj = JSON.parse(data);
-        this.nodes = [];
-        this.connections = [];
-        this.selection.clear();
+        if (!obj || !Array.isArray(obj.nodes) || !Array.isArray(obj.connections)) {
+            throw new Error('Invalid network: nodes and connections must be arrays');
+        }
 
         const nodeMap = new Map();
+        const nodes = [];
         obj.nodes.forEach(nd => {
+            if (!nd || !Number.isSafeInteger(nd.id) || nd.id < 1 ||
+                nd.id === Number.MAX_SAFE_INTEGER || nodeMap.has(nd.id) ||
+                typeof nd.type !== 'string' || !nd.type.trim() ||
+                !Number.isFinite(nd.x) || !Number.isFinite(nd.y) ||
+                (nd.stringParams !== undefined && (!Array.isArray(nd.stringParams) ||
+                    !nd.stringParams.every(value => typeof value === 'string'))) ||
+                (nd.floatParams !== undefined && (!Array.isArray(nd.floatParams) ||
+                    !nd.floatParams.every(Number.isFinite)))) {
+                throw new Error('Invalid network: malformed or duplicate node');
+            }
             const node = new Node(nd.id, nd.type, nd.x, nd.y);
             node.stringParams = nd.stringParams || [];
             node.floatParams = nd.floatParams || [];
-            this.nodes.push(node);
+            nodes.push(node);
             nodeMap.set(nd.id, node);
-            if (nd.id >= this.nextNodeId) this.nextNodeId = nd.id + 1;
         });
 
+        const connections = [];
         obj.connections.forEach(conn => {
-            const source = nodeMap.get(conn.sourceNodeId);
-            const target = nodeMap.get(conn.targetNodeId);
-            if (source && target) {
-                this.addConnection(source.outPoint, target.inPoint);
+            const source = conn && nodeMap.get(conn.sourceNodeId);
+            const target = conn && nodeMap.get(conn.targetNodeId);
+            if (!source || !target) {
+                throw new Error('Invalid network: connection references a missing node');
             }
+            connections.push([source.outPoint, target.inPoint]);
         });
 
+        this.nodes = nodes;
+        this.connections = connections;
+        this.selection.clear();
+        this.nextNodeId = nodes.reduce((next, node) => Math.max(next, node.id + 1), 1);
         this.notifyListeners();
     }
 }
