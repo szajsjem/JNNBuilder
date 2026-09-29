@@ -59,10 +59,20 @@ async function start() {
         input.accept = '.bnn';
         input.onchange = (e) => {
             const file = e.target.files[0];
+            if (!file) return;
             const reader = new FileReader();
             reader.onload = (re) => {
-                nodeManager.deserialize(re.target.result);
-                document.getElementById('status-text').innerText = `Loaded: ${file.name}`;
+                try {
+                    nodeManager.deserialize(re.target.result);
+                    document.getElementById('status-text').innerText = `Loaded: ${file.name}`;
+                } catch (err) {
+                    document.getElementById('status-text').innerText = `Could not load ${file.name}`;
+                    alert(`Could not load network: ${err.message}`);
+                }
+            };
+            reader.onerror = () => {
+                document.getElementById('status-text').innerText = `Could not read ${file.name}`;
+                alert(`Could not read network: ${reader.error?.message || 'Unknown file error'}`);
             };
             reader.readAsText(file);
         };
