@@ -16,33 +16,60 @@ A Java-based graphical editor for designing, training, and managing neural netwo
 
 ## Requirements
 
-- Java 17 or higher
+- Java 21 (the Maven build is configured for Java 21)
+- Maven (to build the Java editor)
 - Minimum 4GB RAM recommended
 - Graphics card supporting Java2D
 
 ## Dependencies
 
-- BeeDNN (Neural Network Library)
 - JSON Library (org.json)
 - org.jfree jfreechart library
 - Swing/AWT for GUI components
+
+Training in the Java editor additionally requires the SNNL Java native binding, see [Native training binding](#native-training-binding).
+The web editor (`index.html`) uses BeeDNN compiled to WebAssembly (`Release-wasm/beednn.wasm`) and needs no native build.
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/szajsjem/MMCV_MON0730_JNNBuilder.git
+git clone https://github.com/szajsjem/JNNBuilder.git
 ```
 
-2. Build using your preferred Java IDE or Maven:
+2. The Java project lives in the `jnnbuilder/` subdirectory (Maven manifest: `jnnbuilder/pom.xml`, artifact `jnnbuilder`). Build from that directory:
 ```bash
-mvn clean install
+cd jnnbuilder
+mvn clean package
 ```
 
-3. Run the application:
+3. Run the application. The entry point is `pl.szajsjem.NetworkEditorGUI`. The generated jar (`target/jnnbuilder-1.0-SNAPSHOT.jar`) has no Main-Class manifest, so run it with the main class explicitly, e.g. via Maven:
 ```bash
-java -jar neural-network-editor.jar
+mvn exec:java -Dexec.mainClass=pl.szajsjem.NetworkEditorGUI
 ```
+   or with a plain `java` command after copying the dependencies:
+```bash
+mvn dependency:copy-dependencies -DoutputDirectory=target/lib
+java -cp "target/jnnbuilder-1.0-SNAPSHOT.jar:target/lib/*" pl.szajsjem.NetworkEditorGUI
+```
+
+### Web editor
+
+Serve the `jnnbuilder/` directory with any static file server and open `index.html` in a browser, e.g.:
+```bash
+cd jnnbuilder
+python3 -m http.server 8000
+```
+
+Its test suite (Node.js, `node:test`):
+```bash
+cd jnnbuilder
+node --test tests/*.test.mjs
+```
+
+### Native training binding
+
+The Java editor loads a native SNNL binding at runtime when training starts. It is located via the `SNNL_JAVA_BINDING` environment variable (path to the library), the `SNNL_HOME` environment variable or a sibling `SNNL` checkout (expected as `libsnnl_java_binding.so` on Linux, `snnl_java_binding.dll` on Windows, `libsnnl_java_binding.dylib` on macOS), or the regular `java.library.path` lookup of the library name `snnl_java_binding`. The GUI itself starts without the binding; training requires it. Note that the prebuilt native binaries checked into this repository (`Release-Java/BeeDNNJava.dll`, `java_binding/`) are Windows x64 DLLs left over from an older `com.beednn` integration and are not the SNNL binding; no Linux build of the SNNL binding is included in this repository, and its availability on Linux has not been verified.
 
 ## Usage
 
